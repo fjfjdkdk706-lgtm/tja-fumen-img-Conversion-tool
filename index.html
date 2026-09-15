@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>譜面画像 to TJA 全音符対応コンバーター</title>
+  <title>譜面画像 to TJA 全自動解析コンバーター</title>
   <style>
     :root {
       --primary-color: #e64a19;
@@ -30,41 +30,16 @@
       color: var(--primary-color);
       font-size: 1.8rem;
     }
-    .meta-inputs {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 12px;
-      margin-bottom: 20px;
-      background: #fafafa;
-      padding: 15px;
-      border-radius: 6px;
-      border: 1px solid #eee;
-    }
-    .input-group {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .input-group label {
-      font-size: 0.85rem;
-      font-weight: bold;
-      color: #555;
-    }
-    .input-group input {
-      padding: 8px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-size: 0.95rem;
-    }
     .drop-zone {
       border: 2px dashed #ccc;
       border-radius: 6px;
-      padding: 30px;
+      padding: 40px;
       text-align: center;
       cursor: pointer;
       background: #fafafa;
       transition: border-color 0.3s;
       margin-bottom: 20px;
+      font-weight: bold;
     }
     .drop-zone:hover, .drop-zone.dragover {
       border-color: var(--primary-color);
@@ -79,7 +54,7 @@
       background-color: var(--primary-color);
       color: white;
       border: none;
-      padding: 10px 20px;
+      padding: 12px 24px;
       border-radius: 4px;
       cursor: pointer;
       font-weight: bold;
@@ -116,35 +91,8 @@
 <body>
 
 <div class="container">
-  <h1>譜面画像 to TJA 全音符対応コンバーター</h1>
-  <p>あらゆる音符（8/12/16/20/24/32/48/64/96/192分音符等）の組み合わせを自動判定して解析します。</p>
-
-  <div class="meta-inputs">
-    <div class="input-group">
-      <label for="metaTitle">曲名 (TITLE)</label>
-      <input type="text" id="metaTitle" value="銀の黎明か、黒の晶華か。">
-    </div>
-    <div class="input-group">
-      <label for="metaSubtitle">サブタイトル (SUBTITLE)</label>
-      <input type="text" id="metaSubtitle" value="--かめりあ vs t+pazolite">
-    </div>
-    <div class="input-group">
-      <label for="metaBpm">BPM</label>
-      <input type="text" id="metaBpm" value="305">
-    </div>
-    <div class="input-group">
-      <label for="metaWave">音源名 (WAVE)</label>
-      <input type="text" id="metaWave" value="銀の黎明か、黒の晶華か。_normalized.ogg">
-    </div>
-    <div class="input-group">
-      <label for="metaCourse">難易度 (COURSE)</label>
-      <input type="text" id="metaCourse" value="Edit">
-    </div>
-    <div class="input-group">
-      <label for="metaLevel">レベル (LEVEL)</label>
-      <input type="text" id="metaLevel" value="10">
-    </div>
-  </div>
+  <h1>譜面画像 to TJA 全自動解析コンバーター</h1>
+  <p>ファイルをドロップするだけで、曲名の取得からノーツ・小節・連打（BALLOON）の解析まで全自動で処理します。</p>
 
   <div class="drop-zone" id="dropZone">
     譜面画像をドラッグ＆ドロップ、またはクリックして選択
@@ -152,13 +100,13 @@
   </div>
 
   <div class="controls">
-    <button id="convertBtn" disabled>全音符自動解析を実行</button>
+    <button id="convertBtn" disabled>再解析を実行</button>
     <button id="downloadBtn" disabled>tjaファイルを保存</button>
   </div>
 
   <div class="output-group">
     <label for="tjaOutput"><strong>生成された TJA コード:</strong></label>
-    <textarea id="tjaOutput" placeholder="解析結果がここに表示されます..." readonly></textarea>
+    <textarea id="tjaOutput" placeholder="画像を読み込むと自動的にメタデータ取得とノーツ解析が行われます..." readonly></textarea>
   </div>
 </div>
 
@@ -174,6 +122,7 @@
   const ctx = canvas.getContext('2d');
 
   let currentImage = null;
+  let autoTitle = "New Song";
 
   dropZone.addEventListener('click', () => fileInput.click());
   dropZone.addEventListener('dragover', (e) => {
@@ -191,6 +140,9 @@
   });
 
   function loadImage(file) {
+    // ファイル名から曲名を自動取得（拡張子を除去）
+    autoTitle = file.name.replace(/\.[^/.]+$/, "");
+    
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
@@ -198,6 +150,9 @@
         currentImage = img;
         dropZone.innerText = `読み込み完了: ${file.name}`;
         convertBtn.disabled = false;
+        
+        // 画像読み込み後、自動で解析処理を実行
+        executeAnalysis();
       };
       img.src = event.target.result;
     };
@@ -205,7 +160,10 @@
   }
 
   function getPixelHSV(data, width, x, y) {
-    const idx = (Math.floor(y) * width + Math.floor(x)) * 4;
+    const px = Math.min(width - 1, Math.max(0, Math.floor(x)));
+    const py = Math.min(data.length / (width * 4) - 1, Math.max(0, Math.floor(y)));
+    const idx = (py * width + px) * 4;
+    
     const r = data[idx], g = data[idx+1], b = data[idx+2];
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
     const d = max - min;
@@ -224,11 +182,12 @@
     return { h: h * 360, s, v, r, g, b };
   }
 
-  function identifyNoteType(hsv, isLarge) {
-    if (hsv.s > 0.45 && hsv.v > 0.35) {
-      if (hsv.h < 25 || hsv.h > 330) return isLarge ? '3' : '1';
-      if (hsv.h > 170 && hsv.h < 250) return isLarge ? '4' : '2';
-      if (hsv.h >= 30 && hsv.h <= 70)  return '5';
+  function identifyNoteType(hsv) {
+    // 判定条件を広げて様々な画像・配色に対応
+    if (hsv.s > 0.35 && hsv.v > 0.30) {
+      if (hsv.h < 30 || hsv.h > 330) return '1'; // 赤 (ドン)
+      if (hsv.h > 160 && hsv.h < 250) return '2'; // 青 (カッ)
+      if (hsv.h >= 35 && hsv.h <= 75)  return '5'; // 黄 (連打/風船)
     }
     return '0';
   }
@@ -237,21 +196,35 @@
     const imgData = ctx.getImageData(0, 0, width, height);
     const data = imgData.data;
 
-    const laneYPositions = [];
-    for (let y = 10; y < height - 10; y += 3) {
-      let grayPixelCount = 0;
-      const samples = 40;
-      for (let i = 0; i < samples; i++) {
-        const x = (width / samples) * i + 10;
+    // 1. レーン位置の自動検出（画像全体からノーツ色の密度が高いY座標を探す）
+    const rowColorDensity = new Array(height).fill(0);
+    for (let y = 0; y < height; y += 2) {
+      let colorCount = 0;
+      for (let x = 0; x < width; x += 4) {
         const p = getPixelHSV(data, width, x, y);
-        if (Math.abs(p.r - p.g) < 15 && Math.abs(p.g - p.b) < 15 && p.r > 70 && p.r < 150) {
-          grayPixelCount++;
+        if (identifyNoteType(p) !== '0') {
+          colorCount++;
         }
       }
-      if (grayPixelCount > samples * 0.7) {
-        if (laneYPositions.length === 0 || y - laneYPositions[laneYPositions.length - 1] > 20) {
+      rowColorDensity[y] = colorCount;
+    }
+
+    const laneYPositions = [];
+    for (let y = 5; y < height - 5; y++) {
+      if (rowColorDensity[y] > 5 && 
+          rowColorDensity[y] >= rowColorDensity[y-1] && 
+          rowColorDensity[y] >= rowColorDensity[y+1]) {
+        if (laneYPositions.length === 0 || y - laneYPositions[laneYPositions.length - 1] > 18) {
           laneYPositions.push(y);
         }
+      }
+    }
+
+    // レーンが検出できない場合の自動均等分割フォールバック
+    if (laneYPositions.length === 0) {
+      const estimatedLanes = 4;
+      for (let i = 0; i < estimatedLanes; i++) {
+        laneYPositions.push(Math.floor((height / (estimatedLanes + 1)) * (i + 1)));
       }
     }
 
@@ -260,17 +233,27 @@
     let isGogoActive = false;
     let activeRoll = false;
 
-    // 対応可能なすべての分割数リスト（4分〜192分音符まで網羅）
-    const candidateDivisions = [4, 8, 12, 16, 20, 24, 32, 36, 40, 48, 64, 72, 96, 128, 192];
+    const candidateDivisions = [4, 8, 12, 16, 20, 24, 32, 48, 64];
 
+    // 2. 各レーンごとに小節区切り線およびノーツを自動スキャン
     laneYPositions.forEach((laneY) => {
       const barXPositions = [];
-      for (let x = 5; x < width - 5; x++) {
+      for (let x = 2; x < width - 2; x++) {
         const p = getPixelHSV(data, width, x, laneY);
-        if (p.r > 220 && p.g > 220 && p.b > 220) {
-          if (barXPositions.length === 0 || x - barXPositions[barXPositions.length - 1] > 15) {
+        // 区切り線（白・グレー）の検出
+        if ((p.r > 180 && p.g > 180 && p.b > 180) || (Math.abs(p.r - p.g) < 10 && p.r > 120 && p.r < 200)) {
+          if (barXPositions.length === 0 || x - barXPositions[barXPositions.length - 1] > 20) {
             barXPositions.push(x);
           }
+        }
+      }
+
+      // 小節線が検出できない場合は横幅から自動分割
+      if (barXPositions.length < 2) {
+        const defaultMeasures = 4;
+        barXPositions.length = 0;
+        for (let i = 0; i <= defaultMeasures; i++) {
+          barXPositions.push(Math.floor((width / defaultMeasures) * i));
         }
       }
 
@@ -278,11 +261,12 @@
         const startX = barXPositions[i];
         const endX = barXPositions[i + 1];
         const measureWidth = endX - startX;
-        if (measureWidth < 30) continue;
+        if (measureWidth < 20) continue;
 
+        // ゴーゴータイムの自動判定
         const midX = startX + measureWidth / 2;
-        const bgP = getPixelHSV(data, width, midX, laneY - 18);
-        const isGogoNow = (bgP.r > 200 && bgP.g > 150 && bgP.b > 160 && (bgP.r - bgP.g > 20));
+        const bgP = getPixelHSV(data, width, midX, Math.max(0, laneY - 15));
+        const isGogoNow = (bgP.r > 180 && bgP.g > 120 && bgP.b < 180 && bgP.r > bgP.b + 30);
 
         if (isGogoNow && !isGogoActive) {
           chartBodyLines.push("#GOGOSTART");
@@ -292,40 +276,38 @@
           isGogoActive = false;
         }
 
+        // ノーツスキャン
         const rawNotes = [];
-        for (let x = startX + 2; x < endX - 2; x += 2) {
+        for (let x = startX; x < endX; x += 2) {
           const p = getPixelHSV(data, width, x, laneY);
-          const topP = getPixelHSV(data, width, x, laneY - 7);
-          const isLarge = (topP.s > 0.4 && Math.abs(topP.h - p.h) < 20);
-          const note = identifyNoteType(p, isLarge);
+          const type = identifyNoteType(p);
 
-          if (note !== '0') {
+          if (type !== '0') {
             const relPos = (x - startX) / measureWidth;
-            rawNotes.push({ pos: relPos, type: note });
+            rawNotes.push({ pos: relPos, type: type });
           }
         }
 
+        // ノーツ重複クラスタリング
         const detectedNotes = [];
         rawNotes.forEach(n => {
           if (detectedNotes.length === 0) {
             detectedNotes.push(n);
           } else {
             const last = detectedNotes[detectedNotes.length - 1];
-            if (Math.abs(n.pos - last.pos) > 0.015 || n.type !== last.type) {
+            if (Math.abs(n.pos - last.pos) > 0.02 || n.type !== last.type) {
               detectedNotes.push(n);
             }
           }
         });
 
-        // --- 全音符対応：最小全方位フィッティングアルゴリズム ---
+        // 小節分割数の動的決定
         let division = 16;
         if (detectedNotes.length > 0) {
           for (const div of candidateDivisions) {
-            // すべてのノーツの位置誤差が6%未満におさまる最小の分割数を選択
             const fits = detectedNotes.every(note => {
               const exactPos = note.pos * div;
-              const error = Math.abs(exactPos - Math.round(exactPos));
-              return error < 0.06;
+              return Math.abs(exactPos - Math.round(exactPos)) < 0.12;
             });
             if (fits) {
               division = div;
@@ -334,6 +316,7 @@
           }
         }
 
+        // TJA文字生成
         const measureArray = new Array(division).fill('0');
         detectedNotes.forEach(note => {
           const index = Math.min(division - 1, Math.max(0, Math.round(note.pos * division)));
@@ -358,21 +341,13 @@
       }
     });
 
-    const title = document.getElementById('metaTitle').value;
-    const subtitle = document.getElementById('metaSubtitle').value;
-    const bpm = document.getElementById('metaBpm').value;
-    const wave = document.getElementById('metaWave').value;
-    const course = document.getElementById('metaCourse').value;
-    const level = document.getElementById('metaLevel').value;
-
+    // 3. ヘッダー情報の自動作成 (WAVE項目削除、タイトル自動反映)
     const header = [
-      `TITLE:${title}`,
-      `SUBTITLE:${subtitle}`,
-      `BPM:${bpm}`,
-      `WAVE:${wave}`,
-      ``,
-      `COURSE:${course}`,
-      `LEVEL:${level}`,
+      `TITLE:${autoTitle}`,
+      `SUBTITLE:--`,
+      `BPM:120`,
+      `COURSE:Edit`,
+      `LEVEL:10`,
       `BALLOON:${balloonCounts.join(',')}`,
       `SCOREINIT:`,
       `SCOREDIFF:`,
@@ -383,7 +358,7 @@
     return header.concat(chartBodyLines, ["#END"]).join("\n");
   }
 
-  convertBtn.addEventListener('click', () => {
+  function executeAnalysis() {
     if (!currentImage) return;
 
     canvas.width = currentImage.width;
@@ -394,14 +369,16 @@
 
     tjaOutput.value = resultTja;
     downloadBtn.disabled = false;
-  });
+  }
+
+  convertBtn.addEventListener('click', executeAnalysis);
 
   downloadBtn.addEventListener('click', () => {
     const blob = new Blob([tjaOutput.value], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'chart.tja';
+    a.download = `${autoTitle}.tja`;
     a.click();
     URL.revokeObjectURL(url);
   });
